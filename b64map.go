@@ -2,11 +2,11 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/base64"
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
@@ -87,18 +87,17 @@ func readDocs(r io.ReadCloser) (ch chan []byte) {
 
 func writeDoc(doc []byte, w io.Writer, prog string, args ...string) (err error) {
 	cmd := exec.Command(prog, args...)
+
 	cmdin, err := cmd.StdinPipe()
 	if err != nil {
 		log.Fatalf("error getting command input: %v", err)
 	}
-	cmdout, err := cmd.StdoutPipe()
-	if err != nil {
-		log.Fatalf("error getting command output: %v", err)
-	}
-	cmderr, err := cmd.StderrPipe()
-	if err != nil {
-		log.Fatalf("error getting command standard error: %v", err)
-	}
+	
+	var cmdout, cmderr bytes.Buffer
+
+	cmd.Stdout = &cmdout
+
+	cmd.Stderr = &cmderr
 
 	err = cmd.Start()
 	if err != nil {
@@ -119,18 +118,7 @@ func writeDoc(doc []byte, w io.Writer, prog string, args ...string) (err error) 
 		return err
 	}
 
-	doc, err = ioutil.ReadAll(cmdout)
-	if err != nil {
-		log.Printf("error reading from command: %v", err)
-		return
-	}
-
-	stderr, err := ioutil.ReadAll(cmderr)
-	if err != nil {
-		log.Printf("error reading standard error: %v", err)
-		return
-	}
-	if _, err := os.Stderr.Write(stderr); err != nil {
+	if _, err := os.Stderr.Write(cmderr.Bytes()); err != nil {
 		log.Printf("error writing standard error: %v", err)
 	}
 
@@ -140,9 +128,9 @@ func writeDoc(doc []byte, w io.Writer, prog string, args ...string) (err error) 
 	}
 
 	// encode and output
-	elen := base64.StdEncoding.EncodedLen(len(doc))
+	elen := base64.StdEncoding.EncodedLen(cmdout.Len())
 	b := make([]byte, elen, elen+1)
-	base64.StdEncoding.Encode(b, doc)
+	base64.StdEncoding.Encode(b, cmdout.Bytes())
 	b = append(b, '\n')
 	_, err = w.Write(b)
 	if err != nil {
